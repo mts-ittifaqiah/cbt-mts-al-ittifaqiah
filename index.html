@@ -5015,16 +5015,46 @@
     }
 
     function downloadTemplateSoalWord() {
-      const content = `1. Hasil dari 12 + 8 × 2 adalah ....\nA. 40\nB. 28\nC. 24\nD. 20\nKUNCI: B\n\n2. Ibu kota negara Indonesia adalah ....\nA. Bandung\nB. Surabaya\nC. Jakarta\nD. Medan\nKUNCI: C`;
-      const blob = new Blob([content], { type: 'application/msword;charset=utf-8;' });
+      const content = [
+        '====================================================================',
+        'TEMPLATE SOAL UJIAN BERBASIS KOMPUTER (Q-CBT MADRASAH)',
+        '====================================================================',
+        'Petunjuk Pengisian:',
+        '1. Pisahkan setiap butir soal dengan minimal 1 baris kosong.',
+        '2. Tulis nomor diikuti titik (contoh: 1. ...), lalu opsi A - E dan KUNCI:',
+        '3. Setelah diisi di Microsoft Word, simpan sebagai .DOC / .TXT atau salin',
+        '   seluruh teks ke fitur "Smart Paste Soal" / "Impor Word/TXT".',
+        '====================================================================',
+        '',
+        '1. Hasil dari 12 + 8 × 2 adalah ....',
+        'A. 40',
+        'B. 28',
+        'C. 24',
+        'D. 20',
+        'E. 16',
+        'KUNCI: B',
+        '',
+        '2. Ibu kota negara Indonesia adalah ....',
+        'A. Bandung',
+        'B. Surabaya',
+        'C. Jakarta',
+        'D. Medan',
+        'E. Yogyakarta',
+        'KUNCI: C',
+        '',
+        '3. Rukun Islam yang kelima adalah ....',
+        'KUNCI: Haji bagi yang mampu'
+      ].join('\n');
+      const blob = new Blob(['\uFEFF' + content], { type: 'application/msword;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'Template_Smart_Import_Soal.doc';
+      a.download = 'Template_Soal_Q_CBT_Madrasah.doc';
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+      showToast('Template Soal Word lengkap dengan contoh berhasil diunduh!', 'success');
     }
 
     function exportSoalToWord(paket) {
