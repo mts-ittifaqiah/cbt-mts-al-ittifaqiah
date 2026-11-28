@@ -4981,22 +4981,135 @@
       blocks.forEach((blk, idx) => {
         const lines = blk.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
         if (lines.length === 0) return;
-        const qText = lines[0].replace(/^\d+[\.\)]\s*/, '');
-        const opsi = {};
+
+        let tipe = 'PG';
+        let bobot = 10;
+        let mediaUrl = '';
+        let questionLines = [];
+        let opsi = {};
+        let pasangan = [];
+        let pernyataanMulti = [];
         let kunci = 'A';
-        lines.slice(1).forEach(ln => {
+
+        lines.forEach((ln, lIdx) => {
+          const tipeMatch = ln.match(/^TIPE\s*:\s*([A-Z0-9_]+)/i);
+          const bobotMatch = ln.match(/^BOBOT\s*:\s*(\d+)/i);
+          const mediaMatch = ln.match(/^MEDIA\s*:\s*(.+)$/i);
           const optMatch = ln.match(/^([A-E])[\.\)]\s*(.+)$/i);
-          const keyMatch = ln.match(/^KUNCI\s*:\s*([A-E])/i);
-          if (optMatch) opsi[optMatch[1].toUpperCase()] = optMatch[2].trim();
-          else if (keyMatch) kunci = keyMatch[1].toUpperCase();
+          const pairMatch = ln.match(/^(?:PASANGAN|JODOH)\s*:\s*(.+?)\s*(?:->|=>|\||=)\s*(.+)$/i);
+          const bsmMatch = ln.match(/^PERNYATAAN\s*:\s*(.+?)\s*\|\s*KUNCI\s*:\s*(Benar|Salah)$/i);
+          const keyMatch = ln.match(/^KUNCI\s*:\s*(.+)$/i);
+
+          if (tipeMatch) {
+            const rawTipe = tipeMatch[1].toUpperCase();
+            if (SOAL_FORMATS.some(f => f.code === rawTipe)) tipe = rawTipe;
+          } else if (bobotMatch) {
+            bobot = Number(bobotMatch[1]) || 10;
+          } else if (mediaMatch) {
+            mediaUrl = mediaMatch[1].trim();
+          } else if (pairMatch) {
+            pasangan.push({ kiri: pairMatch[1].trim(), kanan: pairMatch[2].trim() });
+          } else if (bsmMatch) {
+            pernyataanMulti.push(bsmMatch[1].trim());
+            if (!Array.isArray(kunci)) kunci = [];
+            kunci.push(bsmMatch[2]);
+          } else if (optMatch) {
+            opsi[optMatch[1].toUpperCase()] = optMatch[2].trim();
+          } else if (keyMatch) {
+            const rawKey = keyMatch[1].trim();
+            if (rawKey.includes(',')) {
+              kunci = rawKey.split(',').map(x => x.trim()).filter(Boolean);
+            } else {
+              kunci = rawKey;
+            }
+          } else if (lIdx === 0 || questionLines.length === 0) {
+            questionLines.push(ln.replace(/^\d+[\.\)]\s*/, ''));
+          } else {
+            questionLines.push(ln);
+          }
         });
+
+        const qText = questionLines.join(' ').trim();
+        if (!qText) return;
+
+        if (tipe === 'MENJODOHKAN') {
+          const mapKunci = {};
+          pasangan.forEach(p => { mapKunci[p.kiri] = p.kanan; });
+          result.push({
+            id: `q_imp_${Date.now()}_${idx}`,
+            tipe: 'MENJODOHKAN',
+            pertanyaan: qText,
+            mediaUrl,
+            pasangan,
+            bobot,
+            kunci: mapKunci
+          });
+          return;
+        }
+
+        if (tipe === 'BS_MULTI') {
+          result.push({
+            id: `q_imp_${Date.now()}_${idx}`,
+            tipe: 'BS_MULTI',
+            pertanyaan: qText,
+            mediaUrl,
+            pernyataanMulti,
+            bobot,
+            kunci: Array.isArray(kunci) ? kunci : []
+          });
+          return;
+        }
+
+        if (tipe === 'BS') {
+          result.push({
+            id: `q_imp_${Date.now()}_${idx}`,
+            tipe: 'BS',
+            pertanyaan: qText,
+            mediaUrl,
+            opsi: Object.keys(opsi).length > 0 ? opsi : { A: 'Benar', B: 'Salah' },
+            bobot,
+            kunci: String(kunci || 'Benar')
+          });
+          return;
+        }
+
+        if (tipe === 'PG_KOMPLEKS') {
+          const arrKey = Array.isArray(kunci)
+            ? kunci.map(x => String(x).toUpperCase())
+            : String(kunci || 'A').split(/[,\s]+/).map(x => x.trim().toUpperCase()).filter(Boolean);
+          result.push({
+            id: `q_imp_${Date.now()}_${idx}`,
+            tipe: 'PG_KOMPLEKS',
+            pertanyaan: qText,
+            mediaUrl,
+            opsi,
+            bobot,
+            kunci: arrKey
+          });
+          return;
+        }
+
+        if (tipe === 'ISIAN' || tipe === 'ESAI') {
+          result.push({
+            id: `q_imp_${Date.now()}_${idx}`,
+            tipe,
+            pertanyaan: qText,
+            mediaUrl,
+            bobot,
+            kunci: String(kunci || '')
+          });
+          return;
+        }
+
+        const hasOpts = Object.keys(opsi).length > 0;
         result.push({
           id: `q_imp_${Date.now()}_${idx}`,
-          tipe: Object.keys(opsi).length > 0 ? 'PG' : 'ISIAN',
+          tipe: hasOpts ? tipe : 'ISIAN',
           pertanyaan: qText,
-          opsi: Object.keys(opsi).length > 0 ? opsi : undefined,
-          bobot: 10,
-          kunci
+          mediaUrl,
+          opsi: hasOpts ? opsi : undefined,
+          bobot,
+          kunci: hasOpts ? String(kunci || 'A').toUpperCase() : String(kunci || '')
         });
       });
       return result;
@@ -5016,34 +5129,77 @@
 
     function downloadTemplateSoalWord() {
       const content = [
-        '====================================================================',
-        'TEMPLATE SOAL UJIAN BERBASIS KOMPUTER (Q-CBT MADRASAH)',
-        '====================================================================',
+        '========================================================================',
+        'TEMPLATE SOAL UJIAN BERBASIS KOMPUTER (Q-CBT MADRASAH) — SEMUA JENIS SOAL',
+        '========================================================================',
         'Petunjuk Pengisian:',
         '1. Pisahkan setiap butir soal dengan minimal 1 baris kosong.',
-        '2. Tulis nomor diikuti titik (contoh: 1. ...), lalu opsi A - E dan KUNCI:',
-        '3. Setelah diisi di Microsoft Word, simpan sebagai .DOC / .TXT atau salin',
-        '   seluruh teks ke fitur "Smart Paste Soal" / "Impor Word/TXT".',
-        '====================================================================',
+        '2. Cantumkan TIPE: dan BOBOT: agar format terbaca akurat saat diunggah.',
+        '3. Setelah diisi di Word, simpan sebagai .DOC atau .TXT lalu unggah via',
+        '   "Impor Word/TXT" atau salin ke "Smart Paste Soal".',
+        '========================================================================',
         '',
-        '1. Hasil dari 12 + 8 × 2 adalah ....',
-        'A. 40',
-        'B. 28',
-        'C. 24',
-        'D. 20',
-        'E. 16',
-        'KUNCI: B',
+        '1. Hasil dari -15 + 24 : (-6) × 3 adalah ....',
+        'TIPE: PG',
+        'BOBOT: 10',
+        'A. -27',
+        'B. -3',
+        'C. 3',
+        'D. 27',
+        'E. 12',
+        'KUNCI: A',
         '',
-        '2. Ibu kota negara Indonesia adalah ....',
-        'A. Bandung',
-        'B. Surabaya',
-        'C. Jakarta',
-        'D. Medan',
-        'E. Yogyakarta',
-        'KUNCI: C',
+        '2. Manakah di antara bilangan berikut yang merupakan bilangan prima?',
+        'TIPE: PG_KOMPLEKS',
+        'BOBOT: 15',
+        'A. 11',
+        'B. 15',
+        'C. 19',
+        'D. 21',
+        'E. 23',
+        'KUNCI: A, C, E',
         '',
-        '3. Rukun Islam yang kelima adalah ....',
-        'KUNCI: Haji bagi yang mampu'
+        '3. Setiap bilangan genap yang lebih besar dari 2 bukanlah bilangan prima.',
+        'TIPE: BS',
+        'BOBOT: 10',
+        'A. Benar',
+        'B. Salah',
+        'KUNCI: Benar',
+        '',
+        '4. Tentukan kebenaran pernyataan berikut tentang operasi hitung bilangan:',
+        'TIPE: BS_MULTI',
+        'BOBOT: 15',
+        'PERNYATAAN: Hasil 5 + 5 adalah 10 | KUNCI: Benar',
+        'PERNYATAAN: Hasil 7 × 0 adalah 7 | KUNCI: Salah',
+        'PERNYATAAN: Hasil 12 : 4 adalah 3 | KUNCI: Benar',
+        '',
+        '5. Pasangkan bangun datar berikut dengan rumus luasnya yang tepat:',
+        'TIPE: MENJODOHKAN',
+        'BOBOT: 15',
+        'PASANGAN: Persegi dengan sisi s -> s × s',
+        'PASANGAN: Segitiga alas a dan tinggi t -> 1/2 × a × t',
+        'PASANGAN: Persegi panjang p dan l -> p × l',
+        '',
+        '6. Jika 3x + 5 = 20, maka nilai x adalah ....',
+        'TIPE: ISIAN',
+        'BOBOT: 10',
+        'KUNCI: 5',
+        '',
+        '7. Jelaskan manfaat kejujuran dalam pelaksanaan ujian berbasis komputer!',
+        'TIPE: ESAI',
+        'BOBOT: 15',
+        'KUNCI: Menumbuhkan kepercayaan diri, integritas, dan hasil belajar yang objektif',
+        '',
+        '8. Perhatikan gambar diagram / ilustrasi berikut, lalu tentukan kesimpulannya!',
+        'TIPE: MULTIMEDIA',
+        'BOBOT: 10',
+        'MEDIA: https://placehold.co/600x260/e2e8f0/1e293b?text=Stimulus+Gambar+Soal',
+        'A. Grafik meningkat stabil',
+        'B. Grafik menurun drastis',
+        'C. Grafik konstan sepanjang tahun',
+        'D. Data tidak valid',
+        'E. Tidak ada perubahan',
+        'KUNCI: A'
       ].join('\n');
       const blob = new Blob(['\uFEFF' + content], { type: 'application/msword;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -5054,13 +5210,56 @@
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      showToast('Template Soal Word lengkap dengan contoh berhasil diunduh!', 'success');
+      showToast('Template Soal Word lengkap dengan contoh semua jenis soal berhasil diunduh!', 'success');
     }
 
     function exportSoalToWord(paket) {
       if (!paket) return;
-      const html = `<html><head><meta charset="utf-8" /></head><body><h2>${esc(paket.judul)} (${esc(paket.kodePaket)})</h2>${(paket.soalList || []).map((q, i) => `<p><strong>${i + 1}. ${esc(q.pertanyaan)}</strong></p>`).join('')}</body></html>`;
-      const blob = new Blob(['\uFEFF' + html], { type: 'application/msword;charset=utf-8;' });
+      const kunciMap = state.bankSoalKunci[paket.id] || {};
+      const blocks = (paket.soalList || []).map((q, i) => {
+        const tipe = q.tipe || 'PG';
+        const bobot = q.bobot || 10;
+        const knc = kunciMap[q.id];
+        const lines = [
+          `${i + 1}. ${q.pertanyaan || ''}`,
+          `TIPE: ${tipe}`,
+          `BOBOT: ${bobot}`
+        ];
+
+        if (q.mediaUrl) {
+          lines.push(`MEDIA: ${q.mediaUrl}`);
+        }
+
+        if (tipe === 'MENJODOHKAN') {
+          const pairs = Array.isArray(q.pasangan) && q.pasangan.length > 0
+            ? q.pasangan
+            : Object.entries(knc && typeof knc === 'object' ? knc : {}).map(([kiri, kanan]) => ({ kiri, kanan }));
+          pairs.forEach(p => {
+            lines.push(`PASANGAN: ${p.kiri} -> ${p.kanan}`);
+          });
+        } else if (tipe === 'BS_MULTI') {
+          const stmts = Array.isArray(q.pernyataanMulti) ? q.pernyataanMulti : [];
+          const arrKey = Array.isArray(knc) ? knc : [];
+          stmts.forEach((stmt, idx) => {
+            lines.push(`PERNYATAAN: ${stmt} | KUNCI: ${arrKey[idx] || 'Benar'}`);
+          });
+        } else {
+          if (q.opsi && typeof q.opsi === 'object') {
+            ['A', 'B', 'C', 'D', 'E'].forEach(opt => {
+              if (q.opsi[opt]) lines.push(`${opt}. ${q.opsi[opt]}`);
+            });
+          }
+          const formattedKey = Array.isArray(knc)
+            ? knc.join(', ')
+            : (typeof knc === 'object' && knc !== null ? JSON.stringify(knc) : (knc ?? ''));
+          lines.push(`KUNCI: ${formattedKey}`);
+        }
+
+        return lines.join('\n');
+      });
+
+      const content = blocks.join('\n\n');
+      const blob = new Blob(['\uFEFF' + content], { type: 'application/msword;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -5069,6 +5268,7 @@
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+      showToast('Bank Soal berhasil diekspor sesuai format impor beserta kunci jawaban!', 'success');
     }
 
     function openSmartImportModal(paketId, initialText = '') {
